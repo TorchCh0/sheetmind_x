@@ -59,6 +59,10 @@ if 'executions' not in st.session_state:
     st.session_state.executions = 0
 if 'last_reset' not in st.session_state:
     st.session_state.last_reset = datetime.now().date()
+if 'vip' not in st.session_state:
+    st.session_state.vip = False
+if 'developer_mode' not in st.session_state:
+    st.session_state.developer_mode = False
 
 # 检查是否需要重置执行次数
 current_date = datetime.now().date()
@@ -69,33 +73,60 @@ if st.session_state.last_reset != current_date:
 # 页面标题
 st.title("SheetMind - 智能表格处理工具")
 
-# 侧边栏 - API密钥设置
-st.sidebar.header("设置")
-# 从st.secrets读取API Key
-try:
-    deepseek_api_key = st.secrets["DEEPSEEK_API_KEY"]
-except KeyError:
-    st.sidebar.error("⚠️ 未找到 API Key，请在 .streamlit/secrets.toml 中配置 DEEPSEEK_API_KEY")
-    deepseek_api_key = None
+# 侧边栏
 
-# 显示剩余执行次数
-st.sidebar.subheader("使用限制")
-remaining_executions = 5 - st.session_state.executions
-st.sidebar.write(f"今日剩余执行次数: {remaining_executions}/5")
-
-# 显示当前列名的按钮
-if st.sidebar.button("显示当前列名"):
-    if st.session_state.df is not None:
-        st.sidebar.write("当前表格列名:")
-        st.sidebar.write(list(st.session_state.df.columns))
+# 设置 expander
+with st.sidebar.expander("设置"):
+    # 从st.secrets读取API Key
+    try:
+        deepseek_api_key = st.secrets["DEEPSEEK_API_KEY"]
+    except KeyError:
+        st.error("⚠️ 未找到 API Key，请在 .streamlit/secrets.toml 中配置 DEEPSEEK_API_KEY")
+        deepseek_api_key = None
+    
+    # 开发者模式（仅限管理员可见）
+    dev_password = st.secrets.get("DEV_PASSWORD", "")
+    entered_password = st.text_input("开发者密码", type="password")
+    if dev_password:
+        if entered_password == dev_password:
+            st.session_state.developer_mode = True
+            st.success("开发者模式已启用")
+        elif entered_password:
+            st.session_state.developer_mode = False
+            st.warning("密码错误，请重新输入")
+        else:
+            st.session_state.developer_mode = False
     else:
-        st.sidebar.warning("请先上传文件")
+        st.session_state.developer_mode = False
+        if entered_password:
+            st.info("开发者密码未配置，请联系管理员")
 
-# 开发者模式
-developer_mode = st.sidebar.checkbox("开发者模式", False)
+# VIP 模式 expander
+with st.sidebar.expander("VIP 模式"):
+    vip_codes = st.secrets.get("VIP_CODE", "").split(",")
+    vip_code = st.text_input("VIP 邀请码")
+    if vip_codes[0]:
+        if vip_code in vip_codes:
+            st.session_state.vip = True
+            st.success("VIP 模式已启用：无限次数")
+        elif vip_code:
+            st.session_state.vip = False
+            st.warning("邀请码错误，请重新输入")
+        else:
+            st.session_state.vip = False
+    else:
+        st.session_state.vip = False
+        if vip_code:
+            st.info("VIP 邀请码未配置，请联系管理员")
+    
+    # 清除 VIP 按钮
+    if st.session_state.vip:
+        if st.button("清除 VIP"):
+            st.session_state.vip = False
+            st.info("已退出 VIP 模式")
 
 # 开发者模式功能
-if developer_mode:
+if st.session_state.developer_mode:
     st.sidebar.subheader("开发者工具")
     
     # 查看失败日志
@@ -178,9 +209,9 @@ with col2:
     )
     
     # 4. AI代码生成与执行
-    if st.button("执行", disabled=not (uploaded_file and user_instruction and deepseek_api_key) or st.session_state.executions >= 5):
+    if st.button("执行", disabled=not (uploaded_file and user_instruction and deepseek_api_key) or (not st.session_state.vip and st.session_state.executions >= 5)):
         # 检查执行次数
-        if st.session_state.executions >= 5:
+        if not st.session_state.vip and st.session_state.executions >= 5:
             st.error("免费用户每天最多执行5次操作，请升级账户以获得更多次数。")
         else:
             # 检查df是否存在
@@ -188,8 +219,9 @@ with col2:
                 st.error("请先上传文件并确保文件被正确读取")
             else:
                 with st.status("正在处理...", expanded=True) as status:
-                    # 增加执行次数
-                    st.session_state.executions += 1
+                    # 增加执行次数（非VIP用户）
+                    if not st.session_state.vip:
+                        st.session_state.executions += 1
                     
                     # 步骤1: 生成代码
                     status.update(label="正在分析指令...")
@@ -512,4 +544,7 @@ df = df[df['车船号'] == '海L90666']
                         )
 
 # 底部信息
-st.markdown(f"---\n执行次数: {st.session_state.executions}/5 (每天重置)")
+if st.session_state.vip:
+    st.markdown("---\nVIP 模式：无限次数")
+else:
+    st.markdown(f"---\n执行次数: {st.session_state.executions}/5 (每天重置)")
